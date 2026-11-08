@@ -7,6 +7,7 @@ use std::env;
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Component, Path, PathBuf};
+use std::process::{Command, Stdio};
 use std::time::SystemTime;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -517,6 +518,39 @@ fn strip_date(name: &str) -> &str {
     }
 }
 
+/// `git -C dir args…`: its trimmed stdout, or None if it failed or there's no git.
+fn git(dir: &Path, args: &[&str]) -> Option<String> {
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(args)
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    out.status
+        .success()
+        .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
+/// Why `repo` can't get a new branch `name`, or None if it can.
+fn branch_blocker(repo: &Path, name: &str) -> Option<String> {
+    let full = format!("refs/heads/{name}");
+    if name.starts_with('-') || git(repo, &["check-ref-format", &full]).is_none() {
+        Some(format!("'{name}' is not a valid branch name"))
+    } else if git(repo, &["rev-parse", "--verify", "--quiet", &full]).is_some() {
+        Some(format!("branch '{name}' already exists"))
+    } else {
+        None
+    }
+}
+
+/// The branch checked out in the worktree `dir`, if it's the one try named
+/// after the directory (its name without the date).
+fn try_branch(dir: &Path, name: &str) -> Option<String> {
+    git(dir, &["symbolic-ref", "--short", "-q", "HEAD"]).filter(|b| b == strip_date(name))
+}
+
 fn today() -> String {
     // SAFETY: localtime_r fills tm from the current time.
     unsafe {
@@ -796,18 +830,44 @@ fn script_clone_pr(path: &Path, pr: &Pr) -> Vec<String> {
     v
 }
 
-fn script_worktree(path: &Path, repo: &Path) -> Vec<String> {
-    let msg = format!(
-        "Using git worktree to create this trial from {}.",
-        repo.display()
+/// A worktree of `repo` at `path` on a new `branch`, or detached when it's
+/// None (`why` says why, if it's worth saying). If git fails, its error shows
+/// and `path` stays a plain directory.
+fn script_worktree(
+    path: &Path,
+    repo: &Path,
+    branch: Option<&str>,
+    why: Option<&str>,
+) -> Vec<String> {
+    let (msg, how) = match branch {
+        Some(b) => (
+            format!(
+                "Using git worktree to create this trial from {} on new branch '{b}'.",
+                repo.display()
+            ),
+            format!("-b {}", q(b)),
+        ),
+        None => (
+            format!(
+                "Using git worktree to create this trial from {} (detached HEAD{}).",
+                repo.display(),
+                why.map(|w| format!(": {w}")).unwrap_or_default()
+            ),
+            "--detach".into(),
+        ),
+    };
+    let failed = format!(
+        "try: git worktree add failed; {} is a plain directory.",
+        path.display()
     );
     let mut v = vec![
         format!("mkdir -p {}", qp(path)),
         format!("echo {}", q(msg)),
         format!(
-            "{{ git -C {} worktree add --detach {} >/dev/null 2>&1 || true; }}",
+            "{{ git -C {} worktree add --quiet {how} {} || echo {}; }}",
             qp(repo),
-            qp(path)
+            qp(path),
+            q(failed)
         ),
     ];
     v.extend(script_cd(path));
@@ -837,17 +897,37 @@ fn outcome_script(o: Outcome, base: &Path) -> Vec<String> {
         Outcome::Cd(p) => script_cd(&p),
         Outcome::Mkdir(p) => script_mkdir_cd(&p),
         Outcome::Rename { old, new } => {
-            let new_path = base.join(&new);
-            vec![
-                format!("cd {}", qp(base)),
-                format!("mv -- {} {}", q(&old), q(&new)),
-                format!("echo {}", qp(&new_path)),
-                format!("cd {}", qp(&new_path)),
-            ]
+            let (old_path, new_path) = (base.join(&old), base.join(&new));
+            let mut v = vec![format!("cd {}", qp(base))];
+            if old_path.join(".git").is_file() {
+                v.push(format!(
+                    "git -C {o} worktree move {o} {}",
+                    qp(&new_path),
+                    o = qp(&old_path)
+                ));
+                let (ob, nb) = (strip_date(&old), strip_date(&new));
+                if ob != nb && try_branch(&old_path, &old).is_some() {
+                    v.push(match branch_blocker(&old_path, nb) {
+                        None => format!("git -C {} branch -m {} {}", qp(&new_path), q(ob), q(nb)),
+                        Some(why) => {
+                            format!("echo {}", q(format!("try: kept branch '{ob}': {why}.")))
+                        }
+                    });
+                }
+            } else {
+                v.push(format!("mv -- {} {}", q(&old), q(&new)));
+            }
+            v.push(format!("echo {}", qp(&new_path)));
+            v.push(format!("cd {}", qp(&new_path)));
+            v
         }
         Outcome::Graduate { source, dest, name } => {
             let mut v = vec![if source.join(".git").is_file() {
-                format!("git worktree move {} {}", qp(&source), qp(&dest))
+                format!(
+                    "git -C {s} worktree move {s} {}",
+                    qp(&dest),
+                    s = qp(&source)
+                )
             } else {
                 format!("mv -- {} {}", qp(&source), qp(&dest))
             }];
@@ -861,7 +941,34 @@ fn outcome_script(o: Outcome, base: &Path) -> Vec<String> {
         }
         Outcome::Delete { base, names } => {
             let mut v = vec![format!("cd {}", qp(&base))];
-            v.extend(names.iter().map(|n| format!("rm -rf -- {}", q(n))));
+            for n in &names {
+                let p = base.join(n);
+                // Read the worktree's repo and branch now, before it's gone.
+                let repo = p
+                    .join(".git")
+                    .is_file()
+                    .then(|| {
+                        git(
+                            &p,
+                            &["rev-parse", "--path-format=absolute", "--git-common-dir"],
+                        )
+                    })
+                    .flatten();
+                let branch = repo.as_ref().and_then(|_| try_branch(&p, n));
+                v.push(format!("rm -rf -- {}", q(n)));
+                if let Some(repo) = repo {
+                    let repo = PathBuf::from(repo);
+                    v.push(format!("git -C {} worktree prune", qp(&repo)));
+                    if let Some(b) = branch {
+                        // -d keeps a branch with unmerged work, and git says so.
+                        v.push(format!(
+                            "{{ git -C {} branch -d {} || true; }}",
+                            qp(&repo),
+                            q(b)
+                        ));
+                    }
+                }
+            }
             v.push(format!("cd {} 2>/dev/null || cd {}", qp(&cwd()), qp(&base)));
             v
         }
@@ -1435,7 +1542,7 @@ Add to ~/.bashrc:
 Usage:
   try [query]            Interactive selector, optionally pre-filtered
   try <git-url> [name]   Clone into a dated directory (GitHub PR URLs too)
-  try . <name>           New dated directory; a detached worktree in a git repo
+  try . <name>           New dated directory; in a git repo, a worktree on new branch <name>
   try ./path [name]      The same, from another directory
   try init [path]        Print the bash function
   try --help | --version
@@ -1482,17 +1589,22 @@ fn command(args: &[String], base: &Path) -> Result<Option<Vec<String>>, String> 
             return Err("'try .' requires a name argument\nUsage: try . <name>".into());
         }
         let repo = expand(first);
-        let name = if custom.trim().is_empty() {
+        let named = !custom.trim().is_empty();
+        let name = if named {
+            dashify(custom.trim())
+        } else {
             repo.file_name()
                 .map(|s| s.to_string_lossy().into_owned())
                 .unwrap_or_default()
-        } else {
-            dashify(custom.trim())
         };
         let date = today();
-        let path = base.join(format!("{date}-{}", versioned_name(base, &date, &name)));
+        let name = versioned_name(base, &date, &name);
+        let path = base.join(format!("{date}-{name}"));
         return Ok(Some(if repo.join(".git").exists() {
-            script_worktree(&path, &repo)
+            // A branch only for a name you gave, not the repo's own name.
+            let why = named.then(|| branch_blocker(&repo, &name)).flatten();
+            let branch = (named && why.is_none()).then_some(name.as_str());
+            script_worktree(&path, &repo, branch, why.as_deref())
         } else {
             script_mkdir_cd(&path)
         }));
@@ -1665,13 +1777,14 @@ mod tests {
 
     #[test]
     fn scripts() {
-        let s = emit(&script_worktree(
-            Path::new("/t/2025-01-02-x"),
-            Path::new("/r"),
-        ));
+        let p = Path::new("/t/2025-01-02-x");
+        let s = emit(&script_worktree(p, Path::new("/r"), None, Some("why")));
         assert!(s.starts_with(SCRIPT_WARNING));
-        assert!(s.contains("{ git -C '/r' worktree add --detach '/t/2025-01-02-x' >/dev/null 2>&1 || true; } && \\\n"));
+        assert!(s.contains("(detached HEAD: why)"));
+        assert!(s.contains("{ git -C '/r' worktree add --quiet --detach '/t/2025-01-02-x' || echo 'try: git worktree add failed; /t/2025-01-02-x is a plain directory.'; } && \\\n"));
         assert!(s.trim_end().ends_with("cd '/t/2025-01-02-x'"));
+        let s = emit(&script_worktree(p, Path::new("/r"), Some("x"), None));
+        assert!(s.contains("on new branch ") && s.contains("worktree add --quiet -b 'x' '/t/"));
         let pr = github_pr("https://github.com/a/b/pull/7").unwrap();
         let s = script_clone_pr(Path::new("/t/p"), &pr).join("\n");
         assert!(
@@ -1699,7 +1812,7 @@ mod tests {
             dest: d.join("app"),
             name: "2025-01-02-app".into(),
         };
-        assert!(outcome_script(o, &d)[0].starts_with("git worktree move "));
+        assert!(outcome_script(o, &d)[0].starts_with("git -C "));
 
         let sel = Selector::new(d.clone(), "");
         let outside = tmp("outside");
@@ -1714,6 +1827,86 @@ mod tests {
         );
         fs::remove_dir_all(&d).unwrap();
         fs::remove_dir_all(&outside).unwrap();
+    }
+
+    /// Runs a script the way the `try` function does, in `dir`.
+    fn run(script: &[String], dir: &Path) {
+        let ok = Command::new("bash")
+            .arg("-c")
+            .arg(emit(script))
+            .current_dir(dir)
+            .status()
+            .unwrap()
+            .success();
+        assert!(ok);
+    }
+
+    #[test]
+    fn worktree_branches() {
+        let d = tmp("branches");
+        let (repo, tries) = (d.join("repo"), d.join("tries"));
+        fs::create_dir_all(&tries).unwrap();
+        let ok = Command::new("bash")
+            .arg("-c")
+            .arg("git init -q -b main repo && git -C repo -c user.name=t -c user.email=t@t commit -q --allow-empty -m init")
+            .current_dir(&d)
+            .status()
+            .unwrap()
+            .success();
+        assert!(ok);
+        assert_eq!(branch_blocker(&repo, "feat"), None);
+        assert!(
+            branch_blocker(&repo, "main")
+                .unwrap()
+                .contains("already exists")
+        );
+        assert!(
+            branch_blocker(&repo, "a..b")
+                .unwrap()
+                .contains("not a valid")
+        );
+        assert!(branch_blocker(&repo, "-x").is_some());
+
+        // Create on a new branch.
+        let wt = tries.join("2025-01-02-feat");
+        run(&script_worktree(&wt, &repo, Some("feat"), None), &d);
+        assert_eq!(try_branch(&wt, "2025-01-02-feat").as_deref(), Some("feat"));
+
+        // Rename moves the worktree and its branch.
+        let o = Outcome::Rename {
+            old: "2025-01-02-feat".into(),
+            new: "2025-01-02-feat2".into(),
+        };
+        run(&outcome_script(o, &tries), &d);
+        let wt = tries.join("2025-01-02-feat2");
+        assert_eq!(
+            try_branch(&wt, "2025-01-02-feat2").as_deref(),
+            Some("feat2")
+        );
+        assert!(
+            git(&repo, &["worktree", "list"])
+                .unwrap()
+                .contains("2025-01-02-feat2")
+        );
+
+        // Delete removes the worktree, its bookkeeping and its (merged) branch.
+        let o = Outcome::Delete {
+            base: tries.clone(),
+            names: vec!["2025-01-02-feat2".into()],
+        };
+        run(&outcome_script(o, &tries), &d);
+        assert!(!wt.exists());
+        assert_eq!(
+            git(&repo, &["worktree", "list"]).unwrap().lines().count(),
+            1
+        );
+        assert_eq!(branch_blocker(&repo, "feat2"), None);
+
+        // A failed add leaves a plain directory and doesn't stop the script.
+        let plain = tries.join("2025-01-02-main");
+        run(&script_worktree(&plain, &repo, Some("main"), None), &d);
+        assert!(plain.is_dir() && !plain.join(".git").exists());
+        fs::remove_dir_all(&d).unwrap();
     }
 
     #[test]

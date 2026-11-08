@@ -26,7 +26,7 @@ echo 'eval "$(try init)"' >> ~/.bashrc
 ```
 try [query]            Interactive selector, optionally pre-filtered
 try <git-url> [name]   Clone into a dated directory (GitHub PR URLs too)
-try . <name>           New dated directory; a detached worktree in a git repo
+try . <name>           New dated directory; in a git repo, a worktree on new branch <name>
 try ./path [name]      The same, from another directory
 try init [path]        Print the bash function
 ```
