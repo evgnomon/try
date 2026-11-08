@@ -126,10 +126,17 @@ struct Line {
 
 impl Line {
     fn new(text: impl Into<String>) -> Line {
-        Line { text: text.into(), ..Default::default() }
+        Line {
+            text: text.into(),
+            ..Default::default()
+        }
     }
     fn centered(text: impl Into<String>) -> Line {
-        Line { text: text.into(), center: true, ..Default::default() }
+        Line {
+            text: text.into(),
+            center: true,
+            ..Default::default()
+        }
     }
 }
 
@@ -147,7 +154,11 @@ fn render_line(l: &Line, width: usize, newline: bool) -> (String, Option<usize>)
     out.push_str(&l.bg);
     let text = truncate(&l.text, max);
     let tw = visible_width(&text);
-    let start = if l.center { max.saturating_sub(tw) / 2 } else { 0 };
+    let start = if l.center {
+        max.saturating_sub(tw) / 2
+    } else {
+        0
+    };
     out.push_str(&" ".repeat(start));
     out.push_str(&text);
     let pos = start + tw;
@@ -261,7 +272,11 @@ fn is_tty(fd: i32) -> bool {
 }
 
 fn poll_stdin(ms: i32) -> bool {
-    let mut p = libc::pollfd { fd: 0, events: libc::POLLIN, revents: 0 };
+    let mut p = libc::pollfd {
+        fd: 0,
+        events: libc::POLLIN,
+        revents: 0,
+    };
     // SAFETY: one valid pollfd.
     unsafe { libc::poll(&mut p, 1, ms) > 0 }
 }
@@ -274,7 +289,11 @@ fn read_byte() -> Option<u8> {
 }
 
 fn read_more(bytes: &mut Vec<u8>) -> Option<u8> {
-    let b = if poll_stdin(10) { read_byte()? } else { return None };
+    let b = if poll_stdin(10) {
+        read_byte()?
+    } else {
+        return None;
+    };
     bytes.push(b);
     Some(b)
 }
@@ -311,7 +330,13 @@ fn read_key(ms: i32) -> Option<String> {
             _ => {}
         }
     } else if b >= 0xc0 {
-        let extra = if b >= 0xf0 { 3 } else if b >= 0xe0 { 2 } else { 1 };
+        let extra = if b >= 0xf0 {
+            3
+        } else if b >= 0xe0 {
+            2
+        } else {
+            1
+        };
         for _ in 0..extra {
             read_more(&mut bytes);
         }
@@ -329,7 +354,10 @@ struct Input {
 impl Input {
     fn new(s: &str) -> Input {
         let text: Vec<char> = s.chars().collect();
-        Input { cursor: text.len(), text }
+        Input {
+            cursor: text.len(),
+            text,
+        }
     }
 
     fn text(&self) -> String {
@@ -392,7 +420,10 @@ impl Input {
         let before: String = self.text[..self.cursor].iter().collect();
         let cur = self.text.get(self.cursor).copied().unwrap_or(' ');
         let after: String = self.text.iter().skip(self.cursor + 1).collect();
-        (format!("{before}\x1b[7m{cur}\x1b[27m{after}"), visible_width(&before))
+        (
+            format!("{before}\x1b[7m{cur}\x1b[27m{after}"),
+            visible_width(&before),
+        )
     }
 }
 
@@ -422,7 +453,8 @@ fn fuzzy(text: &[char], query: &[char], base_score: f64) -> Option<(f64, Vec<usi
         let found = (from..text.len()).find(|&i| text[i] == qc)?;
         positions.push(found);
         score += 1.0;
-        if found == 0 || !(text[found - 1].is_ascii_lowercase() || text[found - 1].is_ascii_digit()) {
+        if found == 0 || !(text[found - 1].is_ascii_lowercase() || text[found - 1].is_ascii_digit())
+        {
             score += 1.0;
         }
         if let Some(l) = last {
@@ -472,11 +504,17 @@ fn is_date_prefixed(name: &str) -> bool {
         && b[4] == b'-'
         && b[7] == b'-'
         && b[10] == b'-'
-        && [0, 1, 2, 3, 5, 6, 8, 9].iter().all(|&i| b[i].is_ascii_digit())
+        && [0, 1, 2, 3, 5, 6, 8, 9]
+            .iter()
+            .all(|&i| b[i].is_ascii_digit())
 }
 
 fn strip_date(name: &str) -> &str {
-    if is_date_prefixed(name) { &name[11..] } else { name }
+    if is_date_prefixed(name) {
+        &name[11..]
+    } else {
+        name
+    }
 }
 
 fn today() -> String {
@@ -485,7 +523,12 @@ fn today() -> String {
         let t = libc::time(std::ptr::null_mut());
         let mut tm: libc::tm = std::mem::zeroed();
         libc::localtime_r(&t, &mut tm);
-        format!("{:04}-{:02}-{:02}", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday)
+        format!(
+            "{:04}-{:02}-{:02}",
+            tm.tm_year + 1900,
+            tm.tm_mon + 1,
+            tm.tm_mday
+        )
     }
 }
 
@@ -510,7 +553,11 @@ fn expand(p: &str) -> PathBuf {
     } else {
         PathBuf::from(p)
     };
-    let abs = if path.is_absolute() { path } else { cwd().join(path) };
+    let abs = if path.is_absolute() {
+        path
+    } else {
+        cwd().join(path)
+    };
     let mut out = PathBuf::new();
     for c in abs.components() {
         match c {
@@ -540,10 +587,15 @@ fn username() -> String {
     unsafe {
         let pw = libc::getpwuid(libc::getuid());
         if !pw.is_null() {
-            return std::ffi::CStr::from_ptr((*pw).pw_name).to_string_lossy().into_owned();
+            return std::ffi::CStr::from_ptr((*pw).pw_name)
+                .to_string_lossy()
+                .into_owned();
         }
     }
-    expand("~").file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default()
+    expand("~")
+        .file_name()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_default()
 }
 
 /// `$TRY_PATH`, or ~/src/github.com/<user>/tries.
@@ -555,7 +607,10 @@ fn tries_path() -> PathBuf {
 }
 
 fn rel_time(t: SystemTime) -> String {
-    let secs = SystemTime::now().duration_since(t).map(|d| d.as_secs_f64()).unwrap_or(0.0);
+    let secs = SystemTime::now()
+        .duration_since(t)
+        .map(|d| d.as_secs_f64())
+        .unwrap_or(0.0);
     let (m, h, d) = (secs / 60.0, secs / 3600.0, secs / 86400.0);
     if secs < 60.0 {
         "just now".into()
@@ -616,7 +671,8 @@ fn basename(p: &str) -> &str {
 }
 
 fn strip_scheme(uri: &str) -> Option<&str> {
-    uri.strip_prefix("https://").or_else(|| uri.strip_prefix("http://"))
+    uri.strip_prefix("https://")
+        .or_else(|| uri.strip_prefix("http://"))
 }
 
 /// (user, repo) from https, ssh:// and scp-style URIs.
@@ -691,7 +747,11 @@ fn emit(cmds: &[String]) -> String {
 }
 
 fn script_cd(path: &Path) -> Vec<String> {
-    vec![format!("touch {}", qp(path)), format!("echo {}", qp(path)), format!("cd {}", qp(path))]
+    vec![
+        format!("touch {}", qp(path)),
+        format!("echo {}", qp(path)),
+        format!("cd {}", qp(path)),
+    ]
 }
 
 fn script_mkdir_cd(path: &Path) -> Vec<String> {
@@ -703,7 +763,10 @@ fn script_mkdir_cd(path: &Path) -> Vec<String> {
 fn script_clone(path: &Path, uri: &str) -> Vec<String> {
     let mut v = vec![
         format!("mkdir -p {}", qp(path)),
-        format!("echo {}", q(format!("Using git clone to create this trial from {uri}."))),
+        format!(
+            "echo {}",
+            q(format!("Using git clone to create this trial from {uri}."))
+        ),
         format!("git clone {} {}", q(uri), qp(path)),
     ];
     v.extend(script_cd(path));
@@ -714,9 +777,19 @@ fn script_clone_pr(path: &Path, pr: &Pr) -> Vec<String> {
     let uri = pr.git_uri();
     let mut v = vec![
         format!("mkdir -p {}", qp(path)),
-        format!("echo {}", q(format!("Using git clone to create this trial from {uri} PR #{}.", pr.id))),
+        format!(
+            "echo {}",
+            q(format!(
+                "Using git clone to create this trial from {uri} PR #{}.",
+                pr.id
+            ))
+        ),
         format!("git clone {} {}", q(&uri), qp(path)),
-        format!("git -C {} fetch origin {}", qp(path), q(format!("pull/{}/head", pr.id))),
+        format!(
+            "git -C {} fetch origin {}",
+            qp(path),
+            q(format!("pull/{}/head", pr.id))
+        ),
         format!("git -C {} checkout --detach FETCH_HEAD", qp(path)),
     ];
     v.extend(script_cd(path));
@@ -724,11 +797,18 @@ fn script_clone_pr(path: &Path, pr: &Pr) -> Vec<String> {
 }
 
 fn script_worktree(path: &Path, repo: &Path) -> Vec<String> {
-    let msg = format!("Using git worktree to create this trial from {}.", repo.display());
+    let msg = format!(
+        "Using git worktree to create this trial from {}.",
+        repo.display()
+    );
     let mut v = vec![
         format!("mkdir -p {}", qp(path)),
         format!("echo {}", q(msg)),
-        format!("{{ git -C {} worktree add --detach {} >/dev/null 2>&1 || true; }}", qp(repo), qp(path)),
+        format!(
+            "{{ git -C {} worktree add --detach {} >/dev/null 2>&1 || true; }}",
+            qp(repo),
+            qp(path)
+        ),
     ];
     v.extend(script_cd(path));
     v
@@ -737,9 +817,19 @@ fn script_worktree(path: &Path, repo: &Path) -> Vec<String> {
 enum Outcome {
     Cd(PathBuf),
     Mkdir(PathBuf),
-    Rename { old: String, new: String },
-    Graduate { source: PathBuf, dest: PathBuf, name: String },
-    Delete { base: PathBuf, names: Vec<String> },
+    Rename {
+        old: String,
+        new: String,
+    },
+    Graduate {
+        source: PathBuf,
+        dest: PathBuf,
+        name: String,
+    },
+    Delete {
+        base: PathBuf,
+        names: Vec<String>,
+    },
 }
 
 fn outcome_script(o: Outcome, base: &Path) -> Vec<String> {
@@ -762,7 +852,10 @@ fn outcome_script(o: Outcome, base: &Path) -> Vec<String> {
                 format!("mv -- {} {}", qp(&source), qp(&dest))
             }];
             v.push(format!("ln -s {} {}", qp(&dest), qp(&base.join(&name))));
-            v.push(format!("echo {}", q(format!("Graduated: {name} → {}", dest.display()))));
+            v.push(format!(
+                "echo {}",
+                q(format!("Graduated: {name} → {}", dest.display()))
+            ));
             v.extend(script_cd(&dest));
             v
         }
@@ -794,7 +887,9 @@ struct Match {
 
 fn load_tries(base: &Path) -> Vec<Try> {
     let now = SystemTime::now();
-    let Ok(rd) = fs::read_dir(base) else { return Vec::new() };
+    let Ok(rd) = fs::read_dir(base) else {
+        return Vec::new();
+    };
     let mut tries = Vec::new();
     for e in rd.flatten() {
         let name = e.file_name().to_string_lossy().into_owned();
@@ -802,18 +897,28 @@ fn load_tries(base: &Path) -> Vec<Try> {
             continue;
         }
         let path = e.path();
-        let Ok(meta) = fs::metadata(&path) else { continue };
+        let Ok(meta) = fs::metadata(&path) else {
+            continue;
+        };
         if !meta.is_dir() {
             continue;
         }
         let mtime = meta.modified().unwrap_or(now);
-        let hours = now.duration_since(mtime).map(|d| d.as_secs_f64()).unwrap_or(0.0) / 3600.0;
+        let hours = now
+            .duration_since(mtime)
+            .map(|d| d.as_secs_f64())
+            .unwrap_or(0.0)
+            / 3600.0;
         let mut base_score = 3.0 / (hours + 1.0).sqrt();
         if is_date_prefixed(&name) {
             base_score += 2.0;
         }
         let symlink = e.file_type().map(|t| t.is_symlink()).unwrap_or(false);
-        let path = if symlink { fs::canonicalize(&path).unwrap_or(path) } else { path };
+        let path = if symlink {
+            fs::canonicalize(&path).unwrap_or(path)
+        } else {
+            path
+        };
         tries.push(Try {
             lower: name.chars().map(lower_char).collect(),
             name,
@@ -898,10 +1003,18 @@ impl Selector {
             .iter()
             .enumerate()
             .filter_map(|(idx, t)| {
-                fuzzy(&t.lower, &query, t.base_score).map(|(score, positions)| Match { idx, score, positions })
+                fuzzy(&t.lower, &query, t.base_score).map(|(score, positions)| Match {
+                    idx,
+                    score,
+                    positions,
+                })
             })
             .collect();
-        res.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        res.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         res.truncate(height.saturating_sub(6).max(3));
         self.results = res;
         self.cache_key = Some(key);
@@ -951,7 +1064,9 @@ impl Selector {
                     }
                 }
                 "\x1b[A" | "\x1bOA" | "\x10" => self.cursor = self.cursor.saturating_sub(1),
-                "\x1b[B" | "\x1bOB" | "\x0e" => self.cursor = (self.cursor + 1).min(total.saturating_sub(1)),
+                "\x1b[B" | "\x1bOB" | "\x0e" => {
+                    self.cursor = (self.cursor + 1).min(total.saturating_sub(1))
+                }
                 "\x04" => {
                     if let Some(path) = self.selected_try().map(|t| t.path.clone()) {
                         if let Some(i) = self.marked.iter().position(|p| *p == path) {
@@ -994,7 +1109,11 @@ impl Selector {
         f.header.push(Line::new(rule(width)));
         let (view, off) = self.search.view();
         let prefix = "Search: ";
-        f.header.push(Line { text: dim(prefix) + &view, cursor: Some(prefix.len() + off), ..Default::default() });
+        f.header.push(Line {
+            text: dim(prefix) + &view,
+            cursor: Some(prefix.len() + off),
+            ..Default::default()
+        });
         f.header.push(Line::new(rule(width)));
 
         f.footer.push(Line::new(rule(width)));
@@ -1003,7 +1122,10 @@ impl Selector {
         } else if !self.marked.is_empty() {
             f.footer.push(Line {
                 text: bold(" DELETE MODE ")
-                    + &format!(" {} marked  |  Ctrl-D: Toggle  Enter: Confirm  Esc: Cancel", self.marked.len()),
+                    + &format!(
+                        " {} marked  |  Ctrl-D: Toggle  Enter: Confirm  Esc: Cancel",
+                        self.marked.len()
+                    ),
                 bg: DANGER_BG.into(),
                 ..Default::default()
             });
@@ -1013,7 +1135,9 @@ impl Selector {
             )));
         }
 
-        let max_visible = height.saturating_sub(f.header.len() + f.footer.len()).max(3);
+        let max_visible = height
+            .saturating_sub(f.header.len() + f.footer.len())
+            .max(3);
         let n = self.results.len();
         let create = !self.search.text.is_empty();
         let total = n + create as usize;
@@ -1046,7 +1170,11 @@ impl Selector {
             (false, true) => format!("{SELECTED_BG}{SELECTED_FG}"),
             (false, false) => String::new(),
         };
-        let mut text = if selected { highlight("→ ") + SELECTED_FG } else { "  ".into() };
+        let mut text = if selected {
+            highlight("→ ") + SELECTED_FG
+        } else {
+            "  ".into()
+        };
         text += &format_name(&t.name, &m.positions, selected);
         if t.symlink {
             text += &dim("@");
@@ -1064,10 +1192,22 @@ impl Selector {
     }
 
     fn create_line(&self, selected: bool) -> Line {
-        let mut text = if selected { highlight("→ ") + SELECTED_FG } else { "  ".into() };
+        let mut text = if selected {
+            highlight("→ ") + SELECTED_FG
+        } else {
+            "  ".into()
+        };
         text += &format!("+ Create new: {}-{}", today(), self.search.text());
-        let bg = if selected { format!("{SELECTED_BG}{SELECTED_FG}") } else { String::new() };
-        Line { text, bg, ..Default::default() }
+        let bg = if selected {
+            format!("{SELECTED_BG}{SELECTED_FG}")
+        } else {
+            String::new()
+        };
+        Line {
+            text,
+            bg,
+            ..Default::default()
+        }
     }
 
     /// A screen with one input line. Enter runs `validate`: Ok ends the
@@ -1092,7 +1232,12 @@ impl Selector {
                 f.header.push(Line::centered(accent(title)));
                 f.header.push(Line::new(rule(size.1)));
                 for l in &pre {
-                    f.body.push(Line { text: l.text.clone(), center: l.center, bg: l.bg.clone(), ..Default::default() });
+                    f.body.push(Line {
+                        text: l.text.clone(),
+                        center: l.center,
+                        bg: l.bg.clone(),
+                        ..Default::default()
+                    });
                 }
                 let (view, off) = input.view();
                 f.body.push(Line {
@@ -1102,14 +1247,19 @@ impl Selector {
                     ..Default::default()
                 });
                 for l in &post {
-                    f.body.push(Line { text: l.text.clone(), center: l.center, ..Default::default() });
+                    f.body.push(Line {
+                        text: l.text.clone(),
+                        center: l.center,
+                        ..Default::default()
+                    });
                 }
                 if let Some(e) = &error {
                     f.body.push(Line::default());
                     f.body.push(Line::centered(bold(e)));
                 }
                 f.footer.push(Line::new(rule(size.1)));
-                f.footer.push(Line::centered(dim("Enter: Confirm  Esc: Cancel")));
+                f.footer
+                    .push(Line::centered(dim("Enter: Confirm  Esc: Cancel")));
                 show(&f, size);
                 dirty = false;
                 last_size = size;
@@ -1157,33 +1307,58 @@ impl Selector {
     fn graduate(&self) -> Option<Outcome> {
         let t = self.selected_try()?;
         let projects = env::var("TRY_PROJECTS").ok().filter(|s| !s.is_empty());
-        let hint = if projects.is_some() { "$TRY_PROJECTS" } else { "parent of $TRY_PATH" };
+        let hint = if projects.is_some() {
+            "$TRY_PROJECTS"
+        } else {
+            "parent of $TRY_PATH"
+        };
         let dir = match &projects {
             Some(p) => expand(p),
-            None => self.base.parent().map(Path::to_path_buf).unwrap_or_else(|| PathBuf::from("/")),
+            None => self
+                .base
+                .parent()
+                .map(Path::to_path_buf)
+                .unwrap_or_else(|| PathBuf::from("/")),
         };
         let pre = vec![
             Line::new(t.name.clone()),
             Line::default(),
             Line::centered(dim(&format!("Destination ({hint}: {})", dir.display()))),
         ];
-        let post = vec![Line::default(), Line::centered(dim("A symlink will be left in the tries directory"))];
+        let post = vec![
+            Line::default(),
+            Line::centered(dim("A symlink will be left in the tries directory")),
+        ];
         let initial = dir.join(strip_date(&t.name));
-        let dest = self.dialog("Graduate try to project", pre, "Move to: ", &initial.to_string_lossy(), post, |s| {
-            let s = s.trim();
-            if s.is_empty() {
-                return Err("Destination cannot be empty".into());
-            }
-            let dest = expand(s);
-            if exists(&dest) {
-                return Err(format!("Destination already exists: {}", dest.display()));
-            }
-            match dest.parent() {
-                Some(p) if p.is_dir() => Ok(dest),
-                p => Err(format!("Parent directory does not exist: {}", p.unwrap_or(&dest).display())),
-            }
-        })?;
-        Some(Outcome::Graduate { source: t.path.clone(), dest, name: t.name.clone() })
+        let dest = self.dialog(
+            "Graduate try to project",
+            pre,
+            "Move to: ",
+            &initial.to_string_lossy(),
+            post,
+            |s| {
+                let s = s.trim();
+                if s.is_empty() {
+                    return Err("Destination cannot be empty".into());
+                }
+                let dest = expand(s);
+                if exists(&dest) {
+                    return Err(format!("Destination already exists: {}", dest.display()));
+                }
+                match dest.parent() {
+                    Some(p) if p.is_dir() => Ok(dest),
+                    p => Err(format!(
+                        "Parent directory does not exist: {}",
+                        p.unwrap_or(&dest).display()
+                    )),
+                }
+            },
+        )?;
+        Some(Outcome::Graduate {
+            source: t.path.clone(),
+            dest,
+            name: t.name.clone(),
+        })
     }
 
     fn confirm_delete(&mut self) -> Option<Outcome> {
@@ -1198,12 +1373,23 @@ impl Selector {
             return None;
         }
         let n = items.len();
-        let title = format!("Delete {n} {}?", if n == 1 { "directory" } else { "directories" });
-        let mut pre: Vec<Line> =
-            items.iter().map(|(_, name)| Line { text: name.clone(), bg: DANGER_BG.into(), ..Default::default() }).collect();
+        let title = format!(
+            "Delete {n} {}?",
+            if n == 1 { "directory" } else { "directories" }
+        );
+        let mut pre: Vec<Line> = items
+            .iter()
+            .map(|(_, name)| Line {
+                text: name.clone(),
+                bg: DANGER_BG.into(),
+                ..Default::default()
+            })
+            .collect();
         pre.push(Line::default());
         pre.push(Line::default());
-        let answer = self.dialog(&title, pre, "Type YES to confirm: ", "", vec![], |s| Ok(s.to_string()));
+        let answer = self.dialog(&title, pre, "Type YES to confirm: ", "", vec![], |s| {
+            Ok(s.to_string())
+        });
         if answer.as_deref() != Some("YES") {
             self.status = Some("Delete cancelled".into());
             self.marked.clear();
@@ -1225,7 +1411,11 @@ impl Selector {
         for (path, name) in items {
             let real = fs::canonicalize(path).map_err(|e| format!("{}: {e}", path.display()))?;
             if real == base || !real.starts_with(&base) {
-                return Err(format!("Safety check failed: {} is not inside {}", real.display(), base.display()));
+                return Err(format!(
+                    "Safety check failed: {} is not inside {}",
+                    real.display(),
+                    base.display()
+                ));
             }
             names.push(name.clone());
         }
@@ -1293,13 +1483,19 @@ fn command(args: &[String], base: &Path) -> Result<Option<Vec<String>>, String> 
         }
         let repo = expand(first);
         let name = if custom.trim().is_empty() {
-            repo.file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default()
+            repo.file_name()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_default()
         } else {
             dashify(custom.trim())
         };
         let date = today();
         let path = base.join(format!("{date}-{}", versioned_name(base, &date, &name)));
-        return Ok(Some(if repo.join(".git").exists() { script_worktree(&path, &repo) } else { script_mkdir_cd(&path) }));
+        return Ok(Some(if repo.join(".git").exists() {
+            script_worktree(&path, &repo)
+        } else {
+            script_mkdir_cd(&path)
+        }));
     }
 
     let query = args.join(" ");
@@ -1312,7 +1508,9 @@ fn command(args: &[String], base: &Path) -> Result<Option<Vec<String>>, String> 
         } else {
             let (user, repo) = match &pr {
                 Some(pr) => (pr.user.clone(), pr.repo.clone()),
-                None => parse_git_uri(uri).ok_or_else(|| format!("Unable to parse git URI: {uri}"))?,
+                None => {
+                    parse_git_uri(uri).ok_or_else(|| format!("Unable to parse git URI: {uri}"))?
+                }
             };
             format!("{}-{user}-{repo}", today())
         };
@@ -1342,7 +1540,9 @@ fn main() {
         return;
     }
     if args.first().map(String::as_str) == Some("init") {
-        let exe = env::current_exe().and_then(fs::canonicalize).unwrap_or_else(|_| PathBuf::from("try"));
+        let exe = env::current_exe()
+            .and_then(fs::canonicalize)
+            .unwrap_or_else(|_| PathBuf::from("try"));
         print!("{}", init_function(&exe, args.get(1).map(String::as_str)));
         return;
     }
@@ -1383,7 +1583,9 @@ mod tests {
         let loose = fuzzy(&chars("p-r-o-ject"), &chars("pro"), 0.0).unwrap().0;
         assert!(tight > loose);
         let short = fuzzy(&chars("api"), &chars("api"), 0.0).unwrap().0;
-        let long = fuzzy(&chars("api-gateway-service"), &chars("api"), 0.0).unwrap().0;
+        let long = fuzzy(&chars("api-gateway-service"), &chars("api"), 0.0)
+            .unwrap()
+            .0;
         assert!(short > long);
         // "ab" in "ab": 2 chars + boundary at 0 + proximity 2/√1 = 5, density 1, length 10/12
         let s = fuzzy(&chars("ab"), &chars("ab"), 0.0).unwrap().0;
@@ -1393,12 +1595,30 @@ mod tests {
     #[test]
     fn git_uris() {
         let p = |u| parse_git_uri(u).map(|(a, b)| format!("{a}/{b}"));
-        assert_eq!(p("https://github.com/tobi/try.git").as_deref(), Some("tobi/try"));
-        assert_eq!(p("https://github.com/tobi/try").as_deref(), Some("tobi/try"));
-        assert_eq!(p("git@github.com:tobi/try.git").as_deref(), Some("tobi/try"));
-        assert_eq!(p("https://gitlab.com/group/proj").as_deref(), Some("group/proj"));
-        assert_eq!(p("git@host.xz:team/sub/repo.git").as_deref(), Some("team/repo"));
-        assert_eq!(p("ssh://git@host:2222/team/repo.git").as_deref(), Some("team/repo"));
+        assert_eq!(
+            p("https://github.com/tobi/try.git").as_deref(),
+            Some("tobi/try")
+        );
+        assert_eq!(
+            p("https://github.com/tobi/try").as_deref(),
+            Some("tobi/try")
+        );
+        assert_eq!(
+            p("git@github.com:tobi/try.git").as_deref(),
+            Some("tobi/try")
+        );
+        assert_eq!(
+            p("https://gitlab.com/group/proj").as_deref(),
+            Some("group/proj")
+        );
+        assert_eq!(
+            p("git@host.xz:team/sub/repo.git").as_deref(),
+            Some("team/repo")
+        );
+        assert_eq!(
+            p("ssh://git@host:2222/team/repo.git").as_deref(),
+            Some("team/repo")
+        );
         assert_eq!(p("me@host:path/repo").as_deref(), Some("me/repo"));
         assert_eq!(p("notaurl"), None);
         assert!(is_git_uri("https://x/y/z") && is_git_uri("foo.git") && !is_git_uri("project"));
@@ -1407,7 +1627,10 @@ mod tests {
     #[test]
     fn pr_urls() {
         let pr = github_pr("https://github.com/tobi/try/pull/123/").unwrap();
-        assert_eq!((pr.user.as_str(), pr.repo.as_str(), pr.id.as_str()), ("tobi", "try", "123"));
+        assert_eq!(
+            (pr.user.as_str(), pr.repo.as_str(), pr.id.as_str()),
+            ("tobi", "try", "123")
+        );
         assert_eq!(pr.git_uri(), "https://github.com/tobi/try.git");
         assert!(github_pr("https://www.github.com/a/b/pull/1").is_some());
         assert!(github_pr("https://github.com/a/b/pull/x").is_none());
@@ -1417,7 +1640,11 @@ mod tests {
     #[test]
     fn names() {
         assert_eq!(dashify("my  new\tthing"), "my-new-thing");
-        assert!(is_date_prefixed("2024-01-15-x") && !is_date_prefixed("2024-01-15") && !is_date_prefixed("abcd-ef-gh-x"));
+        assert!(
+            is_date_prefixed("2024-01-15-x")
+                && !is_date_prefixed("2024-01-15")
+                && !is_date_prefixed("abcd-ef-gh-x")
+        );
         assert_eq!(strip_date("2024-01-15-redis"), "redis");
         assert_eq!(q("it's"), r#"'it'"'"'s'"#);
     }
@@ -1438,13 +1665,18 @@ mod tests {
 
     #[test]
     fn scripts() {
-        let s = emit(&script_worktree(Path::new("/t/2025-01-02-x"), Path::new("/r")));
+        let s = emit(&script_worktree(
+            Path::new("/t/2025-01-02-x"),
+            Path::new("/r"),
+        ));
         assert!(s.starts_with(SCRIPT_WARNING));
         assert!(s.contains("{ git -C '/r' worktree add --detach '/t/2025-01-02-x' >/dev/null 2>&1 || true; } && \\\n"));
         assert!(s.trim_end().ends_with("cd '/t/2025-01-02-x'"));
         let pr = github_pr("https://github.com/a/b/pull/7").unwrap();
         let s = script_clone_pr(Path::new("/t/p"), &pr).join("\n");
-        assert!(s.contains("fetch origin 'pull/7/head'") && s.contains("checkout --detach FETCH_HEAD"));
+        assert!(
+            s.contains("fetch origin 'pull/7/head'") && s.contains("checkout --detach FETCH_HEAD")
+        );
         let f = init_function(Path::new("/bin/try"), Some("/x/tries"));
         assert!(f.contains("out=$(TRY_PATH='/x/tries' '/bin/try' \"$@\" 2>/dev/tty) || return"));
     }
@@ -1454,18 +1686,32 @@ mod tests {
         let d = tmp("grad");
         let src = d.join("2025-01-02-app");
         fs::create_dir(&src).unwrap();
-        let o = Outcome::Graduate { source: src.clone(), dest: d.join("app"), name: "2025-01-02-app".into() };
+        let o = Outcome::Graduate {
+            source: src.clone(),
+            dest: d.join("app"),
+            name: "2025-01-02-app".into(),
+        };
         let s = outcome_script(o, &d).join("\n");
         assert!(s.starts_with("mv -- "));
         fs::write(src.join(".git"), "gitdir: x").unwrap();
-        let o = Outcome::Graduate { source: src.clone(), dest: d.join("app"), name: "2025-01-02-app".into() };
+        let o = Outcome::Graduate {
+            source: src.clone(),
+            dest: d.join("app"),
+            name: "2025-01-02-app".into(),
+        };
         assert!(outcome_script(o, &d)[0].starts_with("git worktree move "));
 
         let sel = Selector::new(d.clone(), "");
         let outside = tmp("outside");
-        assert!(sel.validate_delete(&[(outside.clone(), "x".into())]).is_err());
+        assert!(
+            sel.validate_delete(&[(outside.clone(), "x".into())])
+                .is_err()
+        );
         assert!(sel.validate_delete(&[(d.clone(), "x".into())]).is_err());
-        assert!(sel.validate_delete(&[(src, "2025-01-02-app".into())]).is_ok());
+        assert!(
+            sel.validate_delete(&[(src, "2025-01-02-app".into())])
+                .is_ok()
+        );
         fs::remove_dir_all(&d).unwrap();
         fs::remove_dir_all(&outside).unwrap();
     }
@@ -1493,12 +1739,25 @@ mod tests {
         let t = truncate(&highlight("abcdefgh"), 5);
         assert_eq!(visible_width(&t), 5);
         assert!(t.ends_with(&format!("…{RESET_FG}{RESET_BOLD}")));
-        let l = Line { text: "name".into(), right: "2h ago, 3.1".into(), ..Default::default() };
+        let l = Line {
+            text: "name".into(),
+            right: "2h ago, 3.1".into(),
+            ..Default::default()
+        };
         let (s, _) = render_line(&l, 30, false);
-        let plain = s.replace(|c: char| c == '\x1b', "");
+        let plain = s.replace('\x1b', "");
         assert!(plain.contains("name") && plain.contains("2h ago, 3.1"));
         assert_eq!(visible_width(&s.replace('\r', "")), 29);
-        let (_, cur) = render_line(&Line { text: "ab".into(), cursor: Some(1), center: true, ..Default::default() }, 11, true);
+        let (_, cur) = render_line(
+            &Line {
+                text: "ab".into(),
+                cursor: Some(1),
+                center: true,
+                ..Default::default()
+            },
+            11,
+            true,
+        );
         assert_eq!(cur, Some(6));
     }
 }

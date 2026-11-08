@@ -3,12 +3,21 @@
 A bash-only Rust port of try-ruby: a fuzzy selector for dated scratch
 directories under `~/src/github.com/$USER/tries` (or `$TRY_PATH`).
 
+With mise, from the prebuilt binaries on GitHub releases:
+
+```bash
+mise use -g github:evgnomon/try
+```
+
+Or from source:
+
 ```bash
 make install            # to ~/.local/bin; PREFIX=/usr/local for system-wide
 ```
 
-This also installs `~/.bashrc.d/try.sh`, which runs `eval "$(try init)"` when
-`try` is on `PATH`. If your `~/.bashrc` doesn't source `~/.bashrc.d/*.sh`, add:
+`make install` also installs `~/.bashrc.d/try.sh`, which runs
+`eval "$(try init)"` when `try` is on `PATH`. With mise, or if your `~/.bashrc`
+doesn't source `~/.bashrc.d/*.sh`, add:
 
 ```bash
 echo 'eval "$(try init)"' >> ~/.bashrc
