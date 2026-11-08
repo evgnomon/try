@@ -1,0 +1,19 @@
+[package]
+name = "try-cli"
+version = "0.1.0"
+edition = "2024"
+description = "Ephemeral workspace manager for bash (Rust port of try-ruby)"
+license = "MIT"
+
+[[bin]]
+name = "try"
+path = "src/main.rs"
+
+[dependencies]
+libc = "0.2"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
