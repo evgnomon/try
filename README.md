@@ -12,7 +12,7 @@ mise use -g github:evgnomon/try
 Or from source:
 
 ```bash
-make install            # to ~/.local/bin; PREFIX=/usr/local for system-wide
+make install            # static musl binary on Linux, to ~/.local/bin; PREFIX=/usr/local for system-wide
 ```
 
 `make install` also installs `~/.bashrc.d/try.sh`, which runs

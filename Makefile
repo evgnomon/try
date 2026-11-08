@@ -2,14 +2,29 @@ PREFIX ?= $(HOME)/.local
 BINDIR ?= $(PREFIX)/bin
 BASHRCD ?= $(HOME)/.bashrc.d
 CARGO  ?= cargo
-BIN    := target/release/try
 
-.PHONY: all build install uninstall clean
+# On Linux, build a static musl binary for the host architecture.
+# Override with TARGET=<triple>, or TARGET= for the host's default target.
+ifeq ($(shell uname -s),Linux)
+TARGET ?= $(shell uname -m)-unknown-linux-musl
+endif
+
+ifneq ($(TARGET),)
+TARGET_FLAG := --target $(TARGET)
+BIN := target/$(TARGET)/release/try
+else
+BIN := target/release/try
+endif
+
+.PHONY: all build test install uninstall clean
 
 all: build
 
 build:
-	$(CARGO) build --release --locked
+	$(CARGO) build --release --locked $(TARGET_FLAG)
+
+test:
+	$(CARGO) test --locked $(TARGET_FLAG)
 
 $(BIN): build
 
